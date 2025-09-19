@@ -33,6 +33,14 @@ class TeslaListing(BaseModel):
     mileage: Optional[str] = Field(description="Vehicle mileage")
     location: Optional[str] = Field(description="Location/dealership")
     url: Optional[str] = Field(description="Direct listing URL")
+    image_url: Optional[str] = Field(description="Main car image URL")
+
+    # Z-score based scoring fields for finding "sweet spot" listings
+    price_z_score: Optional[float] = Field(default=None, description="Price Z-score (distance from mean)")
+    year_z_score: Optional[float] = Field(default=None, description="Year Z-score (distance from mean)")
+    mileage_z_score: Optional[float] = Field(default=None, description="Mileage Z-score (distance from mean)")
+    composite_score: Optional[float] = Field(default=None, description="Composite balance score (lower = more balanced)")
+    balance_rating: Optional[str] = Field(default=None, description="Human-readable balance rating")
 
 
 class TeslaListingSummary(BaseModel):
@@ -54,7 +62,8 @@ class TeslaConsolidatedSummary(BaseModel):
     global_price_range: str = Field(description="Price range across all sources")
     all_models: List[str] = Field(description="All unique Tesla models found")
     all_locations: List[str] = Field(description="All unique locations found")
-    top_cheapest_cars: List[TeslaListing] = Field(description="Top 20 cheapest cars sorted by price", max_items=20)
+    top_cheapest_cars: List[TeslaListing] = Field(description="Top 20 best balanced cars (sweet spot analysis)", max_items=20)
+    all_sorted_listings: List[TeslaListing] = Field(description="All Tesla listings sorted by balance score (Z-score based sweet spot analysis)")
     summary: str = Field(description="Human-readable consolidated summary")
     analyzed_at: datetime = Field(default_factory=datetime.now, description="Analysis timestamp")
 
@@ -101,6 +110,150 @@ def parse_price_to_numeric(price_str: str) -> float:
         return 0.0
 
 
+def parse_mileage_to_numeric(mileage_str: str) -> float:
+    """
+    Parse mileage string to numeric value for sorting (in kilometers)
+
+    Handles formats like: "45,000 km", "28K miles", "30,000", "Mileage unknown", etc.
+    Converts miles to km (multiply by 1.6)
+    Returns 999999 for unparseable mileage (they'll sort last)
+    """
+    if not mileage_str or not isinstance(mileage_str, str):
+        return 999999.0
+
+    # Clean up the string
+    clean_mileage = mileage_str.strip().replace(',', '').upper()
+
+    # Check if it's unknown/unavailable
+    if any(word in clean_mileage.lower() for word in ['unknown', 'unavailable', 'n/a', 'na', 'not available']):
+        return 999999.0
+
+    try:
+        is_miles = False
+
+        # Check for miles indicators
+        if any(word in clean_mileage.lower() for word in ['mile', 'mi']):
+            is_miles = True
+            clean_mileage = re.sub(r'\b(miles?|mi)\b', '', clean_mileage, flags=re.IGNORECASE).strip()
+
+        # Remove km indicators
+        clean_mileage = re.sub(r'\b(km|kilometers?|kilometres?)\b', '', clean_mileage, flags=re.IGNORECASE).strip()
+
+        # Handle 'K' suffix (thousands)
+        if clean_mileage.endswith('K'):
+            number_part = clean_mileage[:-1]
+            value = float(number_part) * 1000
+        else:
+            value = float(clean_mileage)
+
+        # Convert miles to km
+        if is_miles:
+            value *= 1.6
+
+        return value
+
+    except (ValueError, TypeError):
+        # Return high number for unparseable mileage (they'll sort last)
+        return 999999.0
+
+
+def calculate_z_scores_and_composite_score(listings: List[TeslaListing]) -> List[TeslaListing]:
+    """
+    Calculate Z-scores for price, year, and mileage, then compute composite balance scores.
+    Updates listings in-place with scoring information.
+
+    Args:
+        listings: List of TeslaListing objects to score
+
+    Returns:
+        Updated list of listings with scoring fields populated
+    """
+    import statistics
+    import math
+
+    if not listings or len(listings) < 2:
+        # Not enough data for meaningful statistics
+        for listing in listings:
+            listing.price_z_score = 0.0
+            listing.year_z_score = 0.0
+            listing.mileage_z_score = 0.0
+            listing.composite_score = 0.0
+            listing.balance_rating = "Insufficient Data"
+        return listings
+
+    # Extract numeric values for statistics
+    prices = []
+    years = []
+    mileages = []
+
+    for listing in listings:
+        # Parse price
+        price = parse_price_to_numeric(listing.price)
+        if price > 0:  # Exclude invalid prices
+            prices.append(price)
+
+        # Parse year
+        if listing.year and listing.year > 2000:  # Reasonable year range
+            years.append(listing.year)
+
+        # Parse mileage
+        mileage = parse_mileage_to_numeric(listing.mileage or "")
+        if mileage < 999999:  # Exclude invalid mileage
+            mileages.append(mileage)
+
+    # Calculate statistics (need at least 2 valid values)
+    price_mean = statistics.mean(prices) if len(prices) >= 2 else 0
+    price_stdev = statistics.stdev(prices) if len(prices) >= 2 else 1
+
+    year_mean = statistics.mean(years) if len(years) >= 2 else 0
+    year_stdev = statistics.stdev(years) if len(years) >= 2 else 1
+
+    mileage_mean = statistics.mean(mileages) if len(mileages) >= 2 else 0
+    mileage_stdev = statistics.stdev(mileages) if len(mileages) >= 2 else 1
+
+    # Calculate Z-scores for each listing
+    for listing in listings:
+        # Price Z-score
+        price = parse_price_to_numeric(listing.price)
+        if price > 0 and price_stdev > 0:
+            listing.price_z_score = (price - price_mean) / price_stdev
+        else:
+            listing.price_z_score = 0.0
+
+        # Year Z-score
+        if listing.year and listing.year > 2000 and year_stdev > 0:
+            listing.year_z_score = (listing.year - year_mean) / year_stdev
+        else:
+            listing.year_z_score = 0.0
+
+        # Mileage Z-score
+        mileage = parse_mileage_to_numeric(listing.mileage or "")
+        if mileage < 999999 and mileage_stdev > 0:
+            listing.mileage_z_score = (mileage - mileage_mean) / mileage_stdev
+        else:
+            listing.mileage_z_score = 0.0
+
+        # Composite score (Euclidean distance from center across all dimensions)
+        # Lower score = closer to statistical center = more balanced listing
+        listing.composite_score = math.sqrt(
+            (listing.price_z_score ** 2) +
+            (listing.year_z_score ** 2) +
+            (listing.mileage_z_score ** 2)
+        )
+
+        # Generate human-readable balance rating
+        if listing.composite_score <= 0.5:
+            listing.balance_rating = "Excellent Balance"
+        elif listing.composite_score <= 1.0:
+            listing.balance_rating = "Good Balance"
+        elif listing.composite_score <= 1.5:
+            listing.balance_rating = "Moderate Balance"
+        else:
+            listing.balance_rating = "Poor Balance"
+
+    return listings
+
+
 # State management for the graph
 @dataclass
 class TeslaSearchState:
@@ -123,15 +276,17 @@ def get_tesla_summary_agent() -> Agent:
 
         Focus on:
         - Fetching the provided URL using available tools with JavaScript rendering enabled
-        - Extracting individual Tesla listings with prices, years, MILEAGE, locations, and DIRECT LISTING URLs
+        - Extracting individual Tesla listings with prices, years, MILEAGE, locations, DIRECT LISTING URLs, and MAIN CAR IMAGES
         - For each listing, find and extract the specific URL link that leads to the individual car's detail page
+        - Extract the main/primary image URL for each Tesla car listing (usually the first or featured image)
         - Pay special attention to mileage information (km, miles, odometer reading) as this is crucial for buyers
         - Identifying the most common models (Model 3, Model Y, Model S, Model X)
         - Calculating price ranges and availability trends
         - Creating a concise daily summary for a Tesla buyer
 
-        IMPORTANT: Always include the direct URL and mileage for each individual Tesla listing.
+        IMPORTANT: Always include the direct URL, mileage, and main image URL for each individual Tesla listing.
         Mileage formats may vary (e.g., "45,000 km", "28K miles", "30,000") - extract and preserve the format.
+        For images, extract the main/primary car photo URL (typically the first image shown in the listing).
         Be precise with data extraction and provide actionable insights for car shopping decisions.
         '''
     )
@@ -409,13 +564,13 @@ async def generate_daily_tesla_digest(urls: List[str]) -> List[TeslaListingSumma
 @async_tesla_operation_span("consolidate_summaries")
 async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> TeslaConsolidatedSummary:
     """
-    Consolidate multiple Tesla summaries into single summary with top 20 cheapest cars
+    Consolidate multiple Tesla summaries into single summary with top 20 "sweet spot" cars using Z-score analysis
 
     Args:
         summaries: List of individual TeslaListingSummary objects
 
     Returns:
-        TeslaConsolidatedSummary with consolidated metadata and top 20 cheapest cars
+        TeslaConsolidatedSummary with consolidated metadata and top 20 cars sorted by balance score (sweet spot analysis)
     """
     with logfire.span(
         "Tesla Summary Consolidation",
@@ -430,6 +585,7 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
                 all_models=[],
                 all_locations=[],
                 top_cheapest_cars=[],
+                all_sorted_listings=[],
                 summary="No Tesla listings found from any source."
             )
 
@@ -441,25 +597,31 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
 
             extract_span.set_attribute("total_individual_listings", len(all_listings))
 
-        # Parse prices and sort by price (cheapest first)
-        with logfire.span("Price Parsing and Sorting") as sort_span:
-            listings_with_prices = []
+        # Calculate Z-scores and sort by composite balance score (sweet spot sorting)
+        with logfire.span("Z-Score Calculation and Balance Sorting") as sort_span:
+            # Calculate Z-scores and composite scores for all listings
+            scored_listings = calculate_z_scores_and_composite_score(all_listings)
 
-            for listing in all_listings:
-                parsed_price = parse_price_to_numeric(listing.price)
-                listings_with_prices.append((parsed_price, listing))
+            # Sort by composite score (ascending) - lower scores mean better balance
+            # Secondary sort by price for ties
+            scored_listings.sort(key=lambda listing: (
+                listing.composite_score if listing.composite_score is not None else 999,
+                parse_price_to_numeric(listing.price)
+            ))
 
-            # Sort by price (ascending - cheapest first)
-            # Listings with price 0 (unparseable) will be at the end
-            listings_with_prices.sort(key=lambda x: (x[0] == 0, x[0]))
+            # Take top 20 cars with best balance scores
+            top_20_sorted = scored_listings[:20]
 
-            # Take top 20 cheapest cars
-            top_20_cheapest = [listing for price, listing in listings_with_prices[:20]]
+            # Get ALL sorted listings for HTML report
+            all_sorted_listings = scored_listings
 
             sort_span.set_attributes({
-                "total_listings_with_prices": len(listings_with_prices),
-                "top_20_selected": len(top_20_cheapest),
-                "price_range_processed": f"{listings_with_prices[0][0]} - {listings_with_prices[-1][0]}" if listings_with_prices else "No listings"
+                "total_listings_processed": len(scored_listings),
+                "top_20_selected": len(top_20_sorted),
+                "sorting_criteria": "composite_balance_score_asc (Z-score based)",
+                "best_balance_score": top_20_sorted[0].composite_score if top_20_sorted else None,
+                "worst_balance_score": scored_listings[-1].composite_score if scored_listings else None,
+                "scoring_method": "euclidean_distance_from_statistical_center"
             })
 
         # Aggregate metadata
@@ -478,11 +640,16 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
             all_models = sorted(list(all_models_set))
             all_locations = sorted(list(all_locations_set))
 
-            # Calculate global price range
-            if listings_with_prices:
-                cheapest_price = listings_with_prices[0][0]
-                most_expensive_price = max(price for price, _ in listings_with_prices if price > 0)
-                global_price_range = f"AED {cheapest_price:,.0f} - AED {most_expensive_price:,.0f}"
+            # Calculate global price range from scored listings
+            if scored_listings:
+                prices = [parse_price_to_numeric(listing.price) for listing in scored_listings]
+                valid_prices = [price for price in prices if price > 0]
+                if valid_prices:
+                    cheapest_price = min(valid_prices)
+                    most_expensive_price = max(valid_prices)
+                    global_price_range = f"AED {cheapest_price:,.0f} - AED {most_expensive_price:,.0f}"
+                else:
+                    global_price_range = "No valid prices found"
             else:
                 global_price_range = "No valid prices found"
 
@@ -500,14 +667,14 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
 Found {total_listings_found} Tesla listings across {len(source_urls)} sources.
 Price range: {global_price_range}
 
-Top 20 Cheapest Tesla Models (with URLs and mileage):
-{chr(10).join([f"  {i+1}. {listing.title} - {listing.price} ({listing.year or 'Unknown year'}) | {listing.mileage or 'Mileage unknown'}{f' - {listing.url}' if listing.url else ''}" for i, listing in enumerate(top_20_cheapest)])}
+Top 20 "Sweet Spot" Tesla Models (sorted by balance score - closest to statistical center):
+{chr(10).join([f"  {i+1}. {listing.title} - {listing.price} ({listing.year or 'Unknown year'}) | {listing.mileage or 'Mileage unknown'} | Balance: {listing.balance_rating} (Score: {listing.composite_score:.2f}){f' - {listing.url}' if listing.url else ''}" for i, listing in enumerate(top_20_sorted)])}
 
 Available Models: {', '.join(all_models)}
 Available Locations: {', '.join(all_locations)}
 
 Analysis completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Note: Individual listing URLs and mileage information are included for comprehensive car shopping decisions."""
+Note: Cars are sorted using Z-score analysis to find the optimal balance between price, year, and mileage. Lower balance scores indicate better overall value positioning."""
 
             summary_span.set_attribute("summary_length", len(summary_text))
 
@@ -518,7 +685,8 @@ Note: Individual listing URLs and mileage information are included for comprehen
             global_price_range=global_price_range,
             all_models=all_models,
             all_locations=all_locations,
-            top_cheapest_cars=top_20_cheapest,
+            top_cheapest_cars=top_20_sorted,
+            all_sorted_listings=all_sorted_listings,
             summary=summary_text
         )
 
@@ -533,7 +701,7 @@ Note: Individual listing URLs and mileage information are included for comprehen
             "🎯 Tesla summaries consolidated successfully",
             source_count=len(summaries),
             total_listings=total_listings_found,
-            top_cars_selected=len(top_20_cheapest),
+            top_cars_selected=len(top_20_sorted),
             price_range=global_price_range
         )
 

@@ -1,7 +1,9 @@
 import asyncio
 import json
-import asyncio
+import subprocess
+import sys
 import time
+import threading
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -11,6 +13,7 @@ from typer import Typer
 
 from tesla_finder_ae.nodes import generate_daily_tesla_digest, search_tesla_listings, generate_consolidated_daily_tesla_digest
 from tesla_finder_ae.observability import configure_logfire
+from tesla_finder_ae.html_generator import generate_tesla_html_report, generate_tesla_listings_json
 
 app = Typer(pretty_exceptions_enable=False)
 
@@ -19,14 +22,103 @@ configure_logfire(service_name="tesla-finder-ae-cli")
 urls = [
     "https://dubai.dubizzle.com/motors/used-cars/tesla/?sorting=price_asc&year__gte=2021&year__lte=2026&regional_specs=824",
     "https://carswitch.com/uae/used-cars/search?make=tesla&minyear=2021&maxyear=2025&sort=price_low_high",
-    "https://www.kavak.com/ae/preowned?year=2021,2022,2023,2024&keyword=tesla&order=lower_price&page=0"
+    "https://www.kavak.com/ae/preowned?year=2021,2022,2023,2024&keyword=tesla&order=lower_price&page=0",
+    "https://www.dubicars.com/search?o=&did=&gen=&trg=&moc=&c=new-and-used&ul=AE&cr=AED&k=&mg=&ma=104&yf=2021&yt=&set=bu&pf=&pt=100000&emif=&emit=&kf=&kt=&eo%5B%5D=can-be-exported&eo%5B%5D=not-for-export&noi=30",
+    "https://albacars.ae/buy-used-cars-uae?make=tesla&priceMax=100000",
+    "https://buyanycar.com/cars?cars%3Acars%5BrefinementList%5D%5Bmake%5D%5B0%5D=TESLA&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B0%5D=2021&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B1%5D=2022&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B2%5D=2023&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B3%5D=2024&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B4%5D=2025&cars%3Acars%5Brange%5D%5Bprice%5D=%3A100000",
 ]
+
+
+def start_dev_server_and_open_browser():
+    """
+    Start a Python development server and open the browser
+    """
+    with logfire.span("Development Server Startup") as server_span:
+        try:
+            import http.server
+            import socketserver
+            import os
+            from threading import Thread
+            import webbrowser
+            
+            # Change to public directory
+            public_dir = Path("public").absolute()
+            if not public_dir.exists():
+                raise FileNotFoundError("public/ directory not found")
+            
+            # Check if files exist
+            index_file = public_dir / "index.html"
+            json_file = public_dir / "listings.json"
+            
+            if not index_file.exists():
+                raise FileNotFoundError("public/index.html not found")
+            if not json_file.exists():
+                raise FileNotFoundError("public/listings.json not found")
+            
+            print(f"\n🚀 Starting development server...")
+            print(f"   📁 Serving from: {public_dir}")
+            print(f"   🌐 URL: http://127.0.0.1:8000")
+            
+            def run_server():
+                os.chdir(public_dir)
+                with socketserver.TCPServer(("127.0.0.1", 8000), http.server.SimpleHTTPRequestHandler) as httpd:
+                    print(f"   ✅ Server started successfully")
+                    logfire.info("🚀 Development server started", port=8000, directory=str(public_dir))
+                    httpd.serve_forever()
+            
+            # Start server in background thread
+            server_thread = Thread(target=run_server, daemon=True)
+            server_thread.start()
+            
+            # Give server a moment to start
+            time.sleep(1)
+            
+            # Open browser (macOS)
+            print(f"   🌐 Opening browser...")
+            try:
+                subprocess.run(["open", "http://127.0.0.1:8000"], check=True)
+                print(f"   ✅ Browser opened successfully")
+                logfire.info("🌐 Browser opened successfully", url="http://127.0.0.1:8000")
+            except subprocess.CalledProcessError as e:
+                print(f"   ⚠️ Could not auto-open browser: {e}")
+                print(f"   🔗 Please manually open: http://127.0.0.1:8000")
+                logfire.warning("⚠️ Auto browser opening failed", error=str(e))
+            
+            server_span.set_attributes({
+                "server_started": True,
+                "port": 8000,
+                "directory": str(public_dir),
+                "browser_opened": True,
+                "url": "http://127.0.0.1:8000"
+            })
+            
+            print(f"\n🎯 Tesla Report Ready!")
+            print(f"   📊 View your Tesla market analysis at: http://127.0.0.1:8000")
+            print(f"   🛑 Press Ctrl+C to stop the server")
+            
+            # Keep main thread alive to maintain server
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print(f"\n\n🛑 Server stopped by user")
+                logfire.info("🛑 Development server stopped by user")
+                
+        except Exception as e:
+            print(f"\n❌ Failed to start development server: {e}")
+            print(f"   📁 Please check that public/index.html and public/listings.json exist")
+            print(f"   🔗 You can manually open public/index.html in your browser")
+            
+            server_span.set_attribute("server_startup_failed", True)
+            server_span.set_attribute("error", str(e))
+            logfire.error("❌ Development server startup failed", error=str(e))
 
 
 @app.command()
 def digest(
     output_file: Optional[Path] = None,
-    custom_urls: Optional[str] = None
+    custom_urls: Optional[str] = None,
+    html_report: bool = False
 ):
     """
     Generate daily Tesla digest from configured URLs or custom URLs.
@@ -34,6 +126,7 @@ def digest(
     Args:
         output_file: Optional JSON file to save the digest results
         custom_urls: Comma-separated list of custom URLs to analyze
+        html_report: Generate HTML report in public/ (creates index.html + listings.json) and start dev server
     """
     start_time = time.time()
     
@@ -41,7 +134,8 @@ def digest(
         "CLI Tesla Digest Command",
         command="digest",
         has_custom_urls=custom_urls is not None,
-        has_output_file=output_file is not None
+        has_output_file=output_file is not None,
+        html_report_requested=html_report
     ) as cli_span:
         
         # Use custom URLs if provided, otherwise use default URLs
@@ -124,9 +218,9 @@ def digest(
                 "locations_count": len(consolidated_summary.all_locations)
             })
         
-        # Save to file if requested
+        # Save to JSON file if requested
         if output_file:
-            with logfire.span("File Output", output_path=str(output_file)) as file_span:
+            with logfire.span("JSON File Output", output_path=str(output_file)) as file_span:
                 output_data = consolidated_summary.model_dump()
                 with open(output_file, 'w') as f:
                     json.dump(output_data, f, indent=2, default=str)
@@ -136,6 +230,46 @@ def digest(
                 file_span.set_attribute("file_size_bytes", output_file.stat().st_size if output_file.exists() else 0)
                 logfire.info("💾 Consolidated digest results saved to file", output_file=str(output_file))
         
+        # Generate HTML report if requested
+        if html_report:
+            with logfire.span("HTML Report Generation") as html_span:
+                try:
+                    # Generate both HTML template and JSON data
+                    html_path = Path("public/index.html")
+                    json_path = Path("public/listings.json")
+                    
+                    html_content = generate_tesla_html_report(consolidated_summary, html_path)
+                    json_content = generate_tesla_listings_json(consolidated_summary, json_path)
+                    
+                    print(f"\n🌐 Tesla HTML report generated successfully!")
+                    print(f"   📄 Static HTML: {html_path}")
+                    print(f"   📊 JSON Data: {json_path}")
+                    print(f"   🚗 {len(consolidated_summary.all_sorted_listings)} Tesla cars with images and details")
+                    
+                    html_span.set_attributes({
+                        "html_generated": True,
+                        "json_generated": True,
+                        "html_path": str(html_path),
+                        "json_path": str(json_path),
+                        "cars_with_images": sum(1 for car in consolidated_summary.all_sorted_listings if car.image_url),
+                        "total_cars": len(consolidated_summary.all_sorted_listings),
+                        "xhr_enabled": True
+                    })
+                    
+                    logfire.info("🌐 Tesla HTML+JSON report generated successfully", 
+                               html_path=str(html_path), 
+                               json_path=str(json_path),
+                               total_listings=len(consolidated_summary.all_sorted_listings))
+                    
+                    # Start development server and open browser
+                    start_dev_server_and_open_browser()
+                    
+                except Exception as e:
+                    print(f"\n❌ Failed to generate HTML report: {e}")
+                    html_span.set_attribute("html_generation_failed", True)
+                    html_span.set_attribute("error", str(e))
+                    logfire.error("❌ HTML report generation failed", error=str(e))
+        
         # Calculate and log final metrics
         execution_time = time.time() - start_time
         cli_span.set_attributes({
@@ -144,7 +278,8 @@ def digest(
             "consolidated_summary_generated": True,
             "total_listings_found": consolidated_summary.total_listings_found,
             "top_cars_selected": len(consolidated_summary.top_cheapest_cars),
-            "file_saved": output_file is not None
+            "file_saved": output_file is not None,
+            "html_report_generated": html_report
         })
 
         logfire.info(

@@ -10,6 +10,8 @@ A Pydantic AI-powered tool that fetches and summarizes Tesla listings from multi
 - **🖱️ Clickable URLs**: Direct links to individual Tesla listings for instant access
 - **🛣️ Mileage Display**: Vehicle mileage information for informed purchasing decisions
 - **💰 AED Price Support**: Handles UAE Dirham pricing with intelligent parsing and sorting
+- **🔄 Multi-Factor Sorting**: MongoDB-style sorting by (mileage ascending, price ascending, year descending)
+- **📄 HTML Reports**: Beautiful Tailwind CSS reports with Tesla car images and interactive links
 - **📈 Combined Metadata**: Aggregated price ranges, models, and locations from all sources
 - **⚡ Concurrent Processing**: Parallel URL processing for efficient daily digests
 - **🌐 Multi-Site Support**: Pre-configured for Dubai Dubizzle, CarSwitch, and Kavak
@@ -44,6 +46,12 @@ python -m src.tesla_finder_ae.main digest
 # Save digest to JSON file
 python -m src.tesla_finder_ae.main digest --output-file tesla_digest.json
 
+# Generate beautiful HTML report with car images
+python -m src.tesla_finder_ae.main digest --html-report
+
+# Generate HTML report with custom path
+python -m src.tesla_finder_ae.main digest --html-report --html-output custom_report.html
+
 # Analyze single URL
 python -m src.tesla_finder_ae.main search "https://dubai.dubizzle.com/motors/used-cars/tesla/..."
 
@@ -68,6 +76,10 @@ summary = await search_tesla_listings("https://dubai.dubizzle.com/...")
 # Generate consolidated daily digest with top 20 cheapest cars
 urls = ["url1", "url2", "url3"]
 consolidated = await generate_consolidated_daily_tesla_digest(urls)
+
+# Generate HTML report
+from tesla_finder_ae.html_generator import generate_tesla_html_report
+html_content = generate_tesla_html_report(consolidated)
 ```
 
 ## Output Structure
@@ -80,7 +92,7 @@ class TeslaConsolidatedSummary(BaseModel):
     global_price_range: str             # "AED 45,000 - AED 285,000"
     all_models: List[str]               # Unique models from all sources
     all_locations: List[str]            # Unique locations from all sources
-    top_cheapest_cars: List[TeslaListing]  # Top 20 cheapest, sorted by price
+    top_cheapest_cars: List[TeslaListing]  # Top 20 sorted by (mileage ASC, price ASC, year DESC)
     summary: str                        # Human-readable consolidated summary
     analyzed_at: datetime
 ```
@@ -96,7 +108,7 @@ class TeslaConsolidatedSummary(BaseModel):
 🚙 Available Models: Model 3, Model S, Model X, Model Y
 📍 Available Locations: Dubai, Abu Dhabi, Sharjah
 
-🏆 TOP 20 CHEAPEST TESLA CARS:
+🏆 TOP 20 TESLA CARS (SORTED BY MILEAGE):
 ------------------------------------------------------------------------------------------
    1. Tesla Model 3 Standard Range Plus   -   AED 85,000 (2021) | 45,000 km - Dubai
       🔗 https://dubai.dubizzle.com/motors/used-cars/tesla/model-3/2024/tesla-model-3-standard
@@ -125,6 +137,79 @@ Tesla Market Analysis Summary with individual listing URLs and mileage informati
 1. **Dubai Dubizzle**: Tesla listings 2021-2026, sorted by price ascending
 2. **CarSwitch UAE**: Tesla search 2021-2025, price low to high
 3. **Kavak UAE**: Tesla pre-owned 2021-2024, lowest price first
+
+## HTML Report Generation
+
+### Beautiful Tesla Car Listings with Images
+
+The HTML report feature generates gorgeous, responsive web pages featuring Tesla car listings with:
+
+**Visual Features**:
+- **Tesla Car Images**: Main photo for each listing with automatic fallback for missing images
+- **Tailwind CSS Styling**: Modern, responsive design that works on all devices  
+- **Tesla-themed Design**: Red and dark gray color scheme matching Tesla branding
+- **Interactive Elements**: Clickable "View Listing" buttons and smooth hover effects
+
+**Content Organization**:
+- **Market Statistics**: Overview cards showing sources, total listings, price ranges
+- **Sorted Car Grid**: Responsive grid layout showing cars sorted by (mileage, price, year)
+- **Detailed Car Cards**: Each car displays title, price badge, year, mileage, location, and image
+- **Direct Links**: Clickable buttons to view original Tesla listings
+
+**Technical Implementation**:
+- **Single HTML File**: All CSS/JS embedded, loads from CDNs (Tailwind CSS)
+- **Mobile-First Design**: Responsive breakpoints for phones, tablets, desktops
+- **Fast Loading**: Optimized images with placeholder fallbacks
+- **Accessibility**: Semantic HTML, ARIA labels, keyboard navigation
+
+**Usage Examples**:
+```bash
+# Generate HTML report in public/tesla_digest.html
+python -m src.tesla_finder_ae.main digest --html-report
+
+# Custom HTML output location  
+python -m src.tesla_finder_ae.main digest --html-report --html-output reports/tesla_cars.html
+
+# Combined JSON + HTML output
+python -m src.tesla_finder_ae.main digest --output-file data.json --html-report
+```
+
+**Sample HTML Output Structure**:
+- **Header**: Tesla Market Analysis title with generation timestamp
+- **Statistics Bar**: 4 key metrics cards (sources, listings, featured cars, price range)  
+- **Market Overview**: Available models and locations summary
+- **Car Grid**: Responsive grid of Tesla car cards with images and details
+- **Footer**: Generation info and data source attribution
+
+## Sorting Algorithm
+
+### Multi-Factor Sorting (MongoDB-style)
+
+The consolidated summary uses intelligent multi-factor sorting to prioritize Tesla listings:
+
+**Sorting Criteria** (in order of priority):
+1. **Mileage (Ascending)**: Lowest mileage cars first
+2. **Price (Ascending)**: Among same-mileage cars, cheapest first  
+3. **Year (Descending)**: Among same mileage and price, newer models first
+
+**Example Sorting Behavior**:
+```
+Input: 
+- AED 50,000, 2020, 30,000 km
+- AED 50,000, 2022, 15,000 km  
+- AED 40,000, 2019, 45,000 km
+- AED 80,000, 2023, 5,000 km
+
+Output:
+1. AED 80,000, 2023, 5,000 km   (lowest mileage wins)
+2. AED 40,000, 2019, 45,000 km  (same mileage, cheapest price)
+3. AED 50,000, 2022, 15,000 km  (same mileage, higher price, newer year)
+4. AED 50,000, 2020, 30,000 km  (higher mileage)
+```
+
+**Price Parsing**: Handles "AED 45,000", "65K AED", "Call for price"  
+**Mileage Parsing**: Supports "45,000 km", "28K miles" (auto-converts to km)  
+**Year Extraction**: From `year` field or extracted from listing titles
 
 ## Implementation Details
 
