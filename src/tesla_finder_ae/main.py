@@ -1,9 +1,7 @@
 import asyncio
 import json
 import subprocess
-import sys
 import time
-import threading
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -11,7 +9,7 @@ from datetime import datetime
 import logfire
 from typer import Typer
 
-from tesla_finder_ae.nodes import generate_daily_tesla_digest, search_tesla_listings, generate_consolidated_daily_tesla_digest
+from tesla_finder_ae.nodes import search_tesla_listings, generate_consolidated_daily_tesla_digest
 from tesla_finder_ae.observability import configure_logfire
 from tesla_finder_ae.html_generator import generate_tesla_html_report, generate_tesla_listings_json
 
@@ -26,6 +24,12 @@ urls = [
     "https://www.dubicars.com/search?o=&did=&gen=&trg=&moc=&c=new-and-used&ul=AE&cr=AED&k=&mg=&ma=104&yf=2021&yt=&set=bu&pf=&pt=100000&emif=&emit=&kf=&kt=&eo%5B%5D=can-be-exported&eo%5B%5D=not-for-export&noi=30",
     "https://albacars.ae/buy-used-cars-uae?make=tesla&priceMax=100000",
     "https://buyanycar.com/cars?cars%3Acars%5BrefinementList%5D%5Bmake%5D%5B0%5D=TESLA&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B0%5D=2021&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B1%5D=2022&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B2%5D=2023&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B3%5D=2024&cars%3Acars%5BrefinementList%5D%5Byear%5D%5B4%5D=2025&cars%3Acars%5Brange%5D%5Bprice%5D=%3A100000",
+    "https://www.automall.ae/en/used-cars-shop/?make=tesla",
+    "https://www.autotraders.ae/used-cars/tesla/?st=&city=&condition=&car_make=76&car_model=&ctrim_id=&ex_color_id=&specs_id=&code=&year_min=2021&year_max=&price_min=&price_max=100000",
+    "https://www.rmamotors.com/used-cars/?manufacturer%5B0%5D=Tesla&registrationYear%5Bto%5D=2025&registrationYear%5Bfrom%5D=2021&nfcSearchVersion=1.0.0",
+    "https://uae.yallamotor.com/used-cars/mk_tesla/pr_less_100000/yr_2021_later",
+    "https://www.tesla.com/en_AE/inventory/used/m3?arrangeby=plh&zip=&range=0",
+    "https://www.tesla.com/en_AE/inventory/used/my?arrangeby=plh&zip=&range=0",
 ]
 
 
@@ -39,7 +43,6 @@ def start_dev_server_and_open_browser():
             import socketserver
             import os
             from threading import Thread
-            import webbrowser
             
             # Change to public directory
             public_dir = Path("public").absolute()

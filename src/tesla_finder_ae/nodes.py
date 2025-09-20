@@ -267,7 +267,7 @@ def get_tesla_summary_agent() -> Agent:
     mcp_server = MCPServerStreamableHTTP(tavily_mcp_url)
     
     return Agent(
-        "anthropic:claude-4-sonnet-20250514",
+        "openai:gpt-5-mini-2025-08-07",
         output_type=TeslaListingSummary,
         toolsets=[mcp_server],  # MCP server provides web scraping tools
         system_prompt='''
@@ -334,7 +334,7 @@ class FetchAndSummarizeTesla(BaseNode[TeslaSearchState, None, TeslaListingSummar
                 # Get the agent and run it - Logfire will automatically trace the AI operations
                 with logfire.span("Tesla Agent Creation and Execution") as agent_span:
                     agent = get_tesla_summary_agent()
-                    agent_span.set_attribute("agent_model", "anthropic:claude-4-sonnet-20250514")
+                    agent_span.set_attribute("agent_model", "openai:gpt-5-mini-2025-08-07")
                     agent_span.set_attribute("has_mcp_toolset", True)
                     
                     # The agent.run call will be automatically instrumented by Logfire

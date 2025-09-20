@@ -18,6 +18,9 @@ requires-python = ">= 3.8"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.scripts]
+tsf = "tesla_finder_ae.main:app"
+
 [tool.rye]
 managed = true
 dev-dependencies = []
