@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <meta name="tesla:generated_at" content="{{ analyzed_at_iso }}">
+    <meta name="tesla:sources_count" content="{{ sources_count }}">
+    {% if source_urls %}
+    <meta name="tesla:source_urls" content="{{ source_urls | join(',') }}">
+    {% endif %}
+    
+    <!-- Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for data visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom Tesla-themed configuration -->
+    {% raw %}
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tesla-red': '#dc2626',
+                        'tesla-dark': '#1f2937',
+                        'tesla-light': '#f8fafc'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Additional styles -->
+    <style>
+        body {
+            background-color: #030712;
+            color: #e5e7eb;
+        }
+
+        .card-surface {
+            background-color: #111827;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 0.75rem;
+            color: #e2e8f0;
+        }
+
+        .input-surface {
+            background-color: #0f172a;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+        }
+
+        .input-surface::placeholder {
+            color: rgba(148, 163, 184, 0.6);
+        }
+
+        .input-surface:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.35);
+            border-color: rgba(248, 113, 113, 0.65);
+        }
+
+        .input-surface:disabled {
+            opacity: 0.6;
+        }
+
+        .muted-text {
+            color: #94a3b8;
+        }
+
+        .section-contrast {
+            background-color: #0b1120;
+        }
+
+        .surface-subtle {
+            background-color: #1e293b;
+        }
+
+        .text-gray-500,
+        .text-gray-600 {
+            color: #94a3b8 !important;
+        }
+
+        .text-gray-700 {
+            color: #cbd5f5 !important;
+        }
+
+        .text-gray-900 {
+            color: #f8fafc !important;
+        }
+
+        .bg-tesla-light,
+        .bg-gray-100 {
+            background-color: #0b1120 !important;
+        }
+
+        .bg-white {
+            background-color: #111827 !important;
+        }
+
+        .bg-gray-200 {
+            background-color: #1f2937 !important;
+        }
+
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .filter-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .filter-help {
+            font-size: 0.75rem;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 18rem;
+        }
+    </style>
+    {% endraw %}
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen" data-generated-at="{{ analyzed_at_iso }}" data-sources-count="{{ sources_count }}">
+    <!-- Header Section -->
+    <header class="bg-tesla-dark text-white py-8">
+        <div class="container mx-auto px-4">
+            <div class="text-center">
+                <h1 class="text-4xl md:text-6xl font-bold mb-2">🚗 Tesla Market Analysis</h1>
+                <p class="text-xl md:text-2xl text-slate-300">UAE Dirham (AED) Pricing Report</p>
+                <div id="generation-time" class="mt-4 inline-flex items-center px-4 py-2 bg-tesla-red rounded-full">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 9l6 6 6-6" />
+                    </svg>
+                    <span class="font-semibold">
+                        {% if fallback_generation_label %}
+                        {{ fallback_generation_label }}
+                        {% else %}
+                        Loading...
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Filter & Sort Controls -->
+    <section class="py-6 section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="card-surface shadow-lg p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div>
+                        <p class="filter-label muted-text font-semibold mb-2">Model</p>
+                        <select id="model-filter" class="input-surface w-full px-3 py-2 rounded-lg transition" disabled>
+                            <option selected>Loading models...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <p class="filter-label muted-text font-semibold mb-2">Price Range (AED)</p>
+                        <div class="flex items-center space-x-3">
+                            <input id="price-min" type="number" class="input-surface w-full px-3 py-2 rounded-lg transition" placeholder="Min" disabled>
+                            <span class="muted-text">to</span>
+                            <input id="price-max" type="number" class="input-surface w-full px-3 py-2 rounded-lg transition" placeholder="Max" disabled>
+                        </div>
+                        <p class="filter-help muted-text mt-2">Active: <span id="price-range-display" class="font-medium text-slate-200">Loading...</span></p>
+                    </div>
+                    <div>
+                        <p class="filter-label muted-text font-semibold mb-2">Mileage</p>
+                        <select id="mileage-filter" class="input-surface w-full px-3 py-2 rounded-lg transition" disabled>
+                            <option selected>Loading mileage...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <p class="filter-label muted-text font-semibold mb-2">Sort</p>
+                        <div class="flex flex-col space-y-3">
+                            <div class="flex space-x-3">
+                                <select id="sort-key" class="input-surface w-full px-3 py-2 rounded-lg transition" disabled>
+                                    <option selected>Loading options...</option>
+                                </select>
+                                <button id="sort-order" data-direction="asc" class="px-3 py-2 bg-tesla-dark text-white rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50" disabled>
+                                    <span id="sort-order-icon">⬆️</span>
+                                </button>
+                            </div>
+                            <button id="reset-filters" class="px-3 py-2 border border-gray-700 rounded-lg text-slate-200 hover:bg-slate-800 transition disabled:opacity-50" disabled>
+                                Reset filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Statistics Section -->
+    <section class="py-12 section-contrast">
+        <div class="container mx-auto px-4">
+            <div id="statistics-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Loading placeholders -->
+                <div class="text-center p-6 bg-gradient-to-r from-slate-700 to-slate-800 rounded-xl text-slate-100 animate-pulse">
+                    <div class="text-3xl font-bold">...</div>
+                    <div class="muted-text">Loading...</div>
+                </div>
+                <div class="text-center p-6 bg-gradient-to-r from-slate-700 to-slate-800 rounded-xl text-slate-100 animate-pulse">
+                    <div class="text-3xl font-bold">...</div>
+                    <div class="muted-text">Loading...</div>
+                </div>
+                <div class="text-center p-6 bg-gradient-to-r from-slate-700 to-slate-800 rounded-xl text-slate-100 animate-pulse">
+                    <div class="text-3xl font-bold">...</div>
+                    <div class="muted-text">Loading...</div>
+                </div>
+                <div class="text-center p-6 bg-gradient-to-r from-slate-700 to-slate-800 rounded-xl text-slate-100 animate-pulse">
+                    <div class="text-2xl font-bold">...</div>
+                    <div class="muted-text">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Market Overview -->
+    <section class="py-8 section-contrast">
+        <div class="container mx-auto px-4">
+            <div id="market-overview" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="card-surface p-6 shadow-lg">
+                    <h3 class="text-xl font-bold text-slate-100 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2 text-tesla-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                        Available Models
+                    </h3>
+                    <p id="available-models" class="muted-text leading-relaxed">Loading models...</p>
+                </div>
+                
+                <div class="card-surface p-6 shadow-lg">
+                    <h3 class="text-xl font-bold text-slate-100 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2 text-tesla-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Available Locations
+                    </h3>
+                    <p id="available-locations" class="muted-text leading-relaxed">Loading locations...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Source Insights Section -->
+    <section class="py-10 section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-2xl font-bold text-slate-100">Source Performance Overview</h3>
+                <p class="text-sm muted-text">Breakdown by listing origin with price and mileage signals.</p>
+            </div>
+            <div id="source-breakdown" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                <div class="p-6 bg-gradient-to-r from-slate-700 to-slate-800 rounded-xl text-slate-100 animate-pulse">
+                    <div class="text-lg font-semibold">Loading source metrics...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Loading State -->
+    <div id="loading-section" class="py-12 text-center section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="loading-spinner w-12 h-12 border-4 border-tesla-red border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p class="text-lg muted-text">Loading Tesla listings...</p>
+        </div>
+    </div>
+    
+    <!-- Error State -->
+    <div id="error-section" class="py-12 text-center hidden section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="text-red-400 text-6xl mb-4">⚠️</div>
+            <h3 class="text-2xl font-bold text-slate-100 mb-4">Failed to Load Tesla Data</h3>
+            <p class="muted-text mb-4">There was an error loading the Tesla listings data.</p>
+            <button onclick="loadTeslaData()" class="px-6 py-3 bg-tesla-red text-white rounded-lg hover:bg-red-700 transition-colors">
+                Try Again
+            </button>
+        </div>
+    </div>
+    
+    <!-- Main Cars Section -->
+    <section id="cars-section" class="py-12 hidden section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-slate-100 mb-4">
+                    🎯 Tesla Sweet Spot Analysis (Balance Score Sorting)
+                </h2>
+                <p class="text-lg muted-text max-w-3xl mx-auto">
+                    Complete Tesla market overview using Z-score analysis to find cars closest to the statistical sweet spot.
+                    Cars with better balance scores represent optimal combinations of price, year, and mileage - avoiding extremes in any category.
+                </p>
+                <div class="mt-4">
+                    <span id="total-listings-badge" class="inline-flex items-center px-4 py-2 bg-tesla-red text-white rounded-full font-semibold">
+                        Loading listings count...
+                    </span>
+                </div>
+                <div class="mt-3">
+                    <p id="filter-summary" class="text-sm muted-text">Loading filters...</p>
+                </div>
+            </div>
+            
+            <!-- Cars Grid -->
+            <div id="cars-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Cars will be loaded here by JavaScript -->
+            </div>
+            <div id="cars-empty-state" class="hidden text-center py-12">
+                <div class="max-w-xl mx-auto card-surface border border-dashed border-slate-700 rounded-xl p-8">
+                    <div class="text-5xl mb-4">🤔</div>
+                    <h3 class="text-xl font-semibold text-slate-100 mb-2">No listings match your filters</h3>
+                    <p class="muted-text mb-4">Try widening the price or mileage range, or reset the filters to view all available Tesla listings.</p>
+                    <button id="empty-reset" class="px-4 py-2 bg-tesla-dark text-white rounded-lg hover:bg-black transition">
+                        Reset filters
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Analytics Section -->
+    <section id="analytics-section" class="py-12 hidden section-contrast">
+        <div class="container mx-auto px-4">
+            <div class="text-center mb-10">
+                <h2 class="text-3xl font-bold text-slate-100 mb-2">Market Analytics</h2>
+                <p class="muted-text max-w-2xl mx-auto">Visualize price distribution and model availability across the filtered dataset.</p>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="card-surface shadow-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-semibold text-slate-100">Price Distribution</h3>
+                        <span class="text-sm muted-text" id="price-chart-summary">Loading...</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="price-distribution-chart"></canvas>
+                        <div id="price-chart-empty" class="absolute inset-0 flex items-center justify-center text-slate-400 text-sm hidden">
+                            No price data available for charting.
+                        </div>
+                    </div>
+                </div>
+                <div class="card-surface shadow-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-semibold text-slate-100">Model Mix</h3>
+                        <span class="text-sm muted-text" id="model-chart-summary">Loading...</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="model-distribution-chart"></canvas>
+                        <div id="model-chart-empty" class="absolute inset-0 flex items-center justify-center text-slate-400 text-sm hidden">
+                            Model data will appear once listings load.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Footer -->
+    <footer class="bg-tesla-dark text-white py-8">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-lg mb-2">⚡ Tesla Finder AE - AI-Powered Tesla Market Analysis</p>
+            <p id="footer-timestamp" class="muted-text">Loading timestamp...</p>
+            <div class="mt-4 text-sm muted-text">
+                <p id="footer-sources">Loading source information...</p>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- JavaScript for data loading and rendering -->
+    {% raw %}
+    <script>
+        let teslaData = null;
+        let filteredListings = [];
+        let filtersInitialized = false;
+        const state = {
+            filters: {
+                model: 'all',
+                price: { min: null, max: null },
+                mileage: 'all'
+            },
+            sort: { key: 'preferred', direction: 'asc' },
+            defaults: null
+        };
+        const charts = { price: null, model: null };
+        const palette = ['#f87171', '#38bdf8', '#22c55e', '#fbbf24', '#a855f7', '#ec4899', '#facc15'];
+
+        async function loadTeslaData() {
+            try {
+                const response = await fetch('listings.json', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch listings.json: ${response.status}`);
+                }
+                teslaData = await response.json();
+                renderTeslaData();
+            } catch (error) {
+                console.error('Failed to load Tesla data', error);
+                document.getElementById('loading-section').classList.add('hidden');
+                const errorSection = document.getElementById('error-section');
+                errorSection.classList.remove('hidden');
+                const message = errorSection.querySelector('p.muted-text');
+                if (message) {
+                    message.textContent = 'There was an error loading Tesla listings. Please refresh and try again.';
+                }
+            }
+        }
+
+        function renderTeslaData() {
+            if (!teslaData) {
+                return;
+            }
+
+            const { metadata, listings } = teslaData;
+
+            document.getElementById('generation-time').innerHTML = `
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 9l6 6 6-6" />
+                </svg>
+                <span class="font-semibold">Generated: ${new Date(metadata.generatedAt).toLocaleString()}</span>
+            `;
+
+            renderStatistics(listings);
+            renderMarketOverview(metadata);
+
+            document.getElementById('footer-timestamp').textContent = `Generated at ${new Date(metadata.generatedAt).toLocaleString()} with comprehensive market data`;
+            document.getElementById('footer-sources').textContent = `Data sourced from ${metadata.sourcesAnalyzed} trusted automotive platforms`;
+
+            document.getElementById('loading-section').classList.add('hidden');
+            document.getElementById('error-section').classList.add('hidden');
+            document.getElementById('cars-section').classList.remove('hidden');
+            document.getElementById('analytics-section').classList.remove('hidden');
+
+            initializeFilters();
+            applyFiltersAndSort();
+        }
+
+        function initializeFilters() {
+            if (filtersInitialized || !teslaData) {
+                return;
+            }
+
+            const { metadata } = teslaData;
+            const modelFilter = document.getElementById('model-filter');
+            const priceMinInput = document.getElementById('price-min');
+            const priceMaxInput = document.getElementById('price-max');
+            const mileageFilter = document.getElementById('mileage-filter');
+            const sortKeySelect = document.getElementById('sort-key');
+            const sortOrderButton = document.getElementById('sort-order');
+            const resetButton = document.getElementById('reset-filters');
+            const emptyResetButton = document.getElementById('empty-reset');
+
+            const priceMin = metadata.priceStats?.min ?? 0;
+            const priceMax = metadata.priceStats?.max ?? 0;
+
+            state.filters.model = 'all';
+            state.filters.price = { min: priceMin, max: priceMax };
+            state.filters.mileage = 'all';
+            state.sort = { key: 'preferred', direction: 'asc' };
+            state.defaults = {
+                model: 'all',
+                price: { min: priceMin, max: priceMax },
+                mileage: 'all',
+                sort: { key: 'preferred', direction: 'asc' }
+            };
+
+            modelFilter.innerHTML = '<option value="all">All models</option>' +
+                metadata.availableModels.map(model => `<option value="${model}">${model}</option>`).join('');
+            modelFilter.disabled = false;
+
+            priceMinInput.value = priceMin ? Math.round(priceMin) : '';
+            priceMaxInput.value = priceMax ? Math.round(priceMax) : '';
+            priceMinInput.disabled = false;
+            priceMaxInput.disabled = false;
+            updatePriceRangeDisplay();
+
+            mileageFilter.innerHTML = `
+                <option value="all">Any mileage</option>
+                <option value="low">Under 50,000 km</option>
+                <option value="mid">50,000 - 100,000 km</option>
+                <option value="high">Over 100,000 km</option>
+                <option value="unknown">Mileage unknown</option>
+            `;
+            mileageFilter.value = 'all';
+            mileageFilter.disabled = false;
+
+            sortKeySelect.innerHTML = `
+                <option value="preferred">Lowest mileage • price • newest</option>
+                <option value="balanceScore">Balance score (best value)</option>
+                <option value="price">Price</option>
+                <option value="year">Year</option>
+                <option value="mileage">Mileage</option>
+                <option value="title">Title</option>
+            `;
+            sortKeySelect.value = 'preferred';
+            sortKeySelect.disabled = false;
+
+            sortOrderButton.dataset.direction = 'asc';
+            document.getElementById('sort-order-icon').textContent = '⬆️';
+            sortOrderButton.disabled = false;
+
+            resetButton.disabled = false;
+            if (emptyResetButton) {
+                emptyResetButton.disabled = false;
+            }
+
+            modelFilter.addEventListener('change', event => {
+                state.filters.model = event.target.value;
+                applyFiltersAndSort();
+            });
+
+            function handlePriceInputChange() {
+                const minValue = Number(priceMinInput.value || priceMin);
+                const maxValue = Number(priceMaxInput.value || priceMax);
+                state.filters.price.min = Math.min(minValue, maxValue);
+                state.filters.price.max = Math.max(minValue, maxValue);
+                updatePriceRangeDisplay();
+                applyFiltersAndSort();
+            }
+
+            priceMinInput.addEventListener('input', handlePriceInputChange);
+            priceMaxInput.addEventListener('input', handlePriceInputChange);
+
+            mileageFilter.addEventListener('change', event => {
+                state.filters.mileage = event.target.value;
+                applyFiltersAndSort();
+            });
+
+            sortKeySelect.addEventListener('change', event => {
+                state.sort.key = event.target.value;
+                applyFiltersAndSort();
+            });
+
+            sortOrderButton.addEventListener('click', () => {
+                state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+                sortOrderButton.dataset.direction = state.sort.direction;
+                document.getElementById('sort-order-icon').textContent = state.sort.direction === 'asc' ? '⬆️' : '⬇️';
+                applyFiltersAndSort();
+            });
+
+            resetButton.addEventListener('click', () => {
+                resetFilters();
+            });
+
+            if (emptyResetButton) {
+                emptyResetButton.addEventListener('click', () => {
+                    resetFilters();
+                });
+            }
+
+            filtersInitialized = true;
+        }
+
+        function resetFilters() {
+            const { defaults } = state;
+            if (!defaults) {
+                return;
+            }
+
+            state.filters.model = defaults.model;
+            state.filters.price = { ...defaults.price };
+            state.filters.mileage = defaults.mileage;
+            state.sort = { ...defaults.sort };
+
+            document.getElementById('model-filter').value = defaults.model;
+            document.getElementById('price-min').value = defaults.price.min ? Math.round(defaults.price.min) : '';
+            document.getElementById('price-max').value = defaults.price.max ? Math.round(defaults.price.max) : '';
+            document.getElementById('mileage-filter').value = defaults.mileage;
+            document.getElementById('sort-key').value = defaults.sort.key;
+            const sortOrderButton = document.getElementById('sort-order');
+            sortOrderButton.dataset.direction = defaults.sort.direction;
+            document.getElementById('sort-order-icon').textContent = defaults.sort.direction === 'asc' ? '⬆️' : '⬇️';
+
+            updatePriceRangeDisplay();
+            applyFiltersAndSort();
+        }
+
+        function updatePriceRangeDisplay() {
+            const display = document.getElementById('price-range-display');
+            const minValue = state.filters.price.min;
+            const maxValue = state.filters.price.max;
+            if (!minValue && !maxValue) {
+                display.textContent = 'All prices';
+                return;
+            }
+            const minText = minValue ? formatCurrency(minValue) : 'Min';
+            const maxText = maxValue ? formatCurrency(maxValue) : 'Max';
+            display.textContent = `${minText} → ${maxText}`;
+        }
+
+        function applyFiltersAndSort() {
+            if (!teslaData) {
+                return;
+            }
+
+            const filtered = filterListings(teslaData.listings);
+            filteredListings = sortListings(filtered);
+
+            renderCarListings(filteredListings);
+            renderStatistics(filteredListings);
+            renderSourceBreakdown(filteredListings);
+            renderFilterSummary(filteredListings);
+            updateCharts(filteredListings);
+        }
+
+        function filterListings(listings) {
+            const { model, price, mileage } = state.filters;
+            return listings.filter(listing => {
+                if (model !== 'all' && listing.modelLabel !== model) {
+                    return false;
+                }
+
+                if (typeof price.min === 'number' && price.min > 0 && typeof listing.priceNumeric === 'number' && listing.priceNumeric < price.min) {
+                    return false;
+                }
+                if (typeof price.max === 'number' && price.max > 0 && typeof listing.priceNumeric === 'number' && listing.priceNumeric > price.max) {
+                    return false;
+                }
+
+                const mileageValue = listing.mileageNumeric;
+                if (mileage === 'low' && (typeof mileageValue !== 'number' || mileageValue > 50000)) {
+                    return false;
+                }
+                if (mileage === 'mid' && (typeof mileageValue !== 'number' || mileageValue < 50000 || mileageValue > 100000)) {
+                    return false;
+                }
+                if (mileage === 'high' && (typeof mileageValue !== 'number' || mileageValue <= 100000)) {
+                    return false;
+                }
+                if (mileage === 'unknown' && typeof mileageValue === 'number') {
+                    return false;
+                }
+
+                return true;
+            });
+        }
+
+        function sortListings(listings) {
+            const directionMultiplier = state.sort.direction === 'asc' ? 1 : -1;
+            const key = state.sort.key;
+            const sorted = [...listings];
+
+            sorted.sort((a, b) => {
+                if (key === 'preferred') {
+                    const comparison = comparePreferred(a, b, state.sort.direction);
+                    if (comparison !== 0) {
+                        return comparison;
+                    }
+                    return secondarySort(a, b, directionMultiplier);
+                }
+
+                if (key === 'balanceScore') {
+                    return compareBalanceScores(a, b) * directionMultiplier;
+                }
+
+                if (key === 'price') {
+                    return compareNumeric(a.priceNumeric, b.priceNumeric) * directionMultiplier;
+                }
+
+                if (key === 'year') {
+                    return compareNumeric(b.year, a.year) * directionMultiplier;
+                }
+
+                if (key === 'mileage') {
+                    return compareNumeric(a.mileageNumeric, b.mileageNumeric) * directionMultiplier;
+                }
+
+                if (key === 'title') {
+                    return a.title.localeCompare(b.title) * directionMultiplier;
+                }
+
+                return secondarySort(a, b, directionMultiplier);
+            });
+
+            return sorted;
+        }
+
+        function comparePreferred(a, b, direction) {
+            const directionMultiplier = direction === 'asc' ? 1 : -1;
+            const mileageComparison = compareNumeric(a.mileageNumeric, b.mileageNumeric) * directionMultiplier;
+            if (mileageComparison !== 0) {
+                return mileageComparison;
+            }
+            const priceComparison = compareNumeric(a.priceNumeric, b.priceNumeric) * directionMultiplier;
+            if (priceComparison !== 0) {
+                return priceComparison;
+            }
+            return compareNumeric(b.year, a.year) * directionMultiplier;
+        }
+
+        function compareBalanceScores(a, b) {
+            const scoreA = typeof a.balanceScore === 'number' ? a.balanceScore : Number.POSITIVE_INFINITY;
+            const scoreB = typeof b.balanceScore === 'number' ? b.balanceScore : Number.POSITIVE_INFINITY;
+            return scoreA - scoreB;
+        }
+
+        function compareNumeric(a, b) {
+            const valueA = typeof a === 'number' && !Number.isNaN(a) ? a : Number.POSITIVE_INFINITY;
+            const valueB = typeof b === 'number' && !Number.isNaN(b) ? b : Number.POSITIVE_INFINITY;
+            if (valueA === valueB) {
+                return 0;
+            }
+            return valueA < valueB ? -1 : 1;
+        }
+
+        function secondarySort(a, b, directionMultiplier) {
+            const mileageComparison = compareNumeric(a.mileageNumeric, b.mileageNumeric) * directionMultiplier;
+            if (mileageComparison !== 0) {
+                return mileageComparison;
+            }
+            const priceComparison = compareNumeric(a.priceNumeric, b.priceNumeric) * directionMultiplier;
+            if (priceComparison !== 0) {
+                return priceComparison;
+            }
+            return compareNumeric(b.year, a.year) * directionMultiplier;
+        }
+
+        function calculateAverage(values) {
+            const numericValues = values.filter(value => typeof value === 'number' && !Number.isNaN(value));
+            if (!numericValues.length) {
+                return null;
+            }
+            const total = numericValues.reduce((sum, value) => sum + value, 0);
+            return total / numericValues.length;
+        }
+
+        function calculateMedian(values) {
+            const numericValues = values.filter(value => typeof value === 'number' && !Number.isNaN(value));
+            if (!numericValues.length) {
+                return null;
+            }
+            const sorted = [...numericValues].sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            if (sorted.length % 2 === 0) {
+                return (sorted[middle - 1] + sorted[middle]) / 2;
+            }
+            return sorted[middle];
+        }
+
+        function renderStatistics(listings) {
+            if (!listings?.length) {
+                return;
+            }
+
+            const totalListings = listings.length;
+            const averagePrice = calculateAverage(listings.map(listing => listing.priceNumeric));
+            const medianMileage = calculateMedian(listings.map(listing => listing.mileageNumeric));
+            const uniqueSources = new Set(listings.map(listing => listing.source || 'unattributed')).size;
+
+            document.getElementById('statistics-container').innerHTML = `
+                <div class="text-center p-6 bg-gradient-to-r from-tesla-dark to-slate-900 rounded-xl text-slate-100 shadow-lg">
+                    <div class="text-4xl font-bold">${totalListings}</div>
+                    <div class="muted-text">Total Tesla listings</div>
+                </div>
+                <div class="text-center p-6 card-surface rounded-xl shadow-lg">
+                    <div class="text-2xl font-bold text-slate-100">${formatCurrency(averagePrice)}</div>
+                    <div class="muted-text">Average price</div>
+                </div>
+                <div class="text-center p-6 card-surface rounded-xl shadow-lg">
+                    <div class="text-2xl font-bold text-slate-100">${medianMileage ? formatMileage(medianMileage) : 'N/A'}</div>
+                    <div class="muted-text">Median mileage</div>
+                </div>
+                <div class="text-center p-6 card-surface rounded-xl shadow-lg">
+                    <div class="text-xl font-bold text-slate-100">${uniqueSources}</div>
+                    <div class="muted-text">Data sources represented</div>
+                </div>
+            `;
+        }
+
+        function renderMarketOverview(metadata) {
+            if (!metadata) {
+                return;
+            }
+
+            const availableModels = metadata.availableModels?.length
+                ? metadata.availableModels.join(', ')
+                : 'Model data pending - please wait while we load the latest Tesla availability.';
+            const availableLocations = metadata.availableLocations?.length
+                ? metadata.availableLocations.join(', ')
+                : 'Location data will appear once listings are analyzed.';
+
+            document.getElementById('available-models').textContent = availableModels;
+            document.getElementById('available-locations').textContent = availableLocations;
+        }
+
+        function renderSourceBreakdown(listings) {
+            const container = document.getElementById('source-breakdown');
+            if (!listings?.length) {
+                container.innerHTML = `
+                    <div class="p-6 card-surface rounded-xl shadow-lg text-center muted-text">
+                        No listings available for source analysis.
+                    </div>
+                `;
+                return;
+            }
+
+            const aggregate = aggregateSources(listings);
+            if (!aggregate.length) {
+                container.innerHTML = `
+                    <div class="p-6 card-surface rounded-xl shadow-lg text-center muted-text">
+                        No source data available at this time.
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = aggregate.map(entry => `
+                <div class="p-6 card-surface rounded-xl shadow-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-semibold text-slate-100">${entry.source}</h4>
+                        <span class="text-sm muted-text">${entry.listingCount} listings</span>
+                    </div>
+                    <div class="space-y-2 text-sm muted-text">
+                        <div class="flex items-center justify-between">
+                            <span>Median price</span>
+                            <span class="font-semibold">${entry.medianPrice ? formatCurrency(entry.medianPrice) : 'N/A'}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span>Price range</span>
+                            <span class="font-semibold">${formatPriceBand(entry.minPrice, entry.maxPrice)}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span>Avg. mileage</span>
+                            <span class="font-semibold">${entry.averageMileage ? formatMileage(entry.averageMileage) : 'N/A'}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function aggregateSources(listings) {
+            const map = new Map();
+            listings.forEach(listing => {
+                const source = listing.source || 'unattributed';
+                if (!map.has(source)) {
+                    map.set(source, { source, listingCount: 0, prices: [], mileages: [] });
+                }
+                const entry = map.get(source);
+                entry.listingCount += 1;
+                if (typeof listing.priceNumeric === 'number') {
+                    entry.prices.push(listing.priceNumeric);
+                }
+                if (typeof listing.mileageNumeric === 'number') {
+                    entry.mileages.push(listing.mileageNumeric);
+                }
+            });
+
+            return Array.from(map.values()).map(entry => {
+                const prices = entry.prices;
+                const mileages = entry.mileages;
+                prices.sort((a, b) => a - b);
+                return {
+                    source: entry.source,
+                    listingCount: entry.listingCount,
+                    medianPrice: prices.length ? prices[Math.floor(prices.length / 2)] : null,
+                    minPrice: prices.length ? prices[0] : null,
+                    maxPrice: prices.length ? prices[prices.length - 1] : null,
+                    averageMileage: mileages.length ? mileages.reduce((sum, value) => sum + value, 0) / mileages.length : null
+                };
+            }).sort((a, b) => b.listingCount - a.listingCount);
+        }
+
+        function renderCarListings(listings) {
+            const carsGrid = document.getElementById('cars-grid');
+            const emptyState = document.getElementById('cars-empty-state');
+            const totalBadge = document.getElementById('total-listings-badge');
+            const totalAvailable = teslaData?.listings?.length ?? listings.length;
+
+            if (!listings.length) {
+                carsGrid.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                totalBadge.innerHTML = `
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 9l6 6 6-6" />
+                    </svg>
+                    Showing 0 of ${totalAvailable} Tesla listings
+                `;
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            totalBadge.innerHTML = `
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 9l6 6 6-6" />
+                </svg>
+                Showing ${listings.length} of ${totalAvailable} Tesla listings
+            `;
+
+            carsGrid.innerHTML = listings.map((listing, index) => {
+                const yearText = listing.year ? `(${listing.year})` : '(Year Unknown)';
+                const mileageText = listing.mileage || 'Mileage Unknown';
+                const locationText = listing.location || 'Location Unknown';
+                const imageUrl = listing.imageUrl || `https://placehold.co/400x300/1f2937/ffffff?text=Tesla+Image+${index + 1}`;
+                const modelBadge = listing.modelLabel && listing.modelLabel !== 'Other'
+                    ? `<span class="inline-flex items-center px-3 py-1 bg-slate-800 text-slate-200 text-xs font-semibold rounded-full border border-slate-600/60">${listing.modelLabel}</span>`
+                    : '';
+
+                const viewButton = listing.url ? `
+                    <a href="${listing.url}" target="_blank" 
+                       class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors duration-200">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        View Listing
+                    </a>
+                ` : `
+                    <button disabled class="inline-flex items-center px-4 py-2 bg-slate-700 text-slate-400 text-sm font-medium rounded-lg cursor-not-allowed">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636" />
+                        </svg>
+                        No URL Available
+                    </button>
+                `;
+
+                return `
+                    <div class="card-surface rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition-shadow duration-300">
+                        <div class="relative h-64 bg-slate-800">
+                            <img src="${imageUrl}"
+                                 alt="${listing.title}"
+                                 class="w-full h-full object-cover"
+                                 loading="lazy"
+                                 onerror="this.src='https://placehold.co/400x300/1f2937/ffffff?text=Tesla+Image+Not+Available'; this.classList.add('opacity-75');" />
+                            <div class="absolute top-4 left-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-semibold">
+                                #${index + 1}
+                            </div>
+                        </div>
+
+                        <div class="p-6 space-y-4">
+                            <div class="flex items-start justify-between">
+                                <h3 class="text-xl font-bold text-slate-100 line-clamp-2">${listing.title}</h3>
+                                ${modelBadge}
+                            </div>
+
+                            <div class="flex items-center space-x-3">
+                                <span class="inline-flex items-center px-4 py-2 bg-emerald-500/10 text-emerald-300 text-lg font-bold rounded-lg border border-emerald-500/30">
+                                    ${listing.price}
+                                </span>
+                                ${getBalanceScoreBadge(listing.balanceScore, listing.balanceRating)}
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm muted-text">
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 9l6 6 6-6" />
+                                    </svg>
+                                    <span class="font-medium">Year:</span>
+                                    <span class="ml-1">${yearText}</span>
+                                </div>
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    <span class="font-medium">Mileage:</span>
+                                    <span class="ml-1">${mileageText}</span>
+                                </div>
+                                <div class="flex items-center md:col-span-2">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    <span class="font-medium">Location:</span>
+                                    <span class="ml-1">${locationText}</span>
+                                </div>
+                                <div class="flex items-center md:col-span-2 text-xs text-slate-400">
+                                    <svg class="w-3 h-3 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8h-2a2 2 0 01-2-2V6a2 2 0 012-2h6a2 2 0 012 2v12a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <span>Source: ${listing.source || 'Unattributed'} · Model: ${listing.modelLabel || 'Other'}</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between pt-4 border-t border-slate-700">
+                                ${viewButton}
+                                <div class="text-sm text-slate-400 text-right">
+                                    <div>Balance score: ${typeof listing.balanceScore === 'number' ? listing.balanceScore.toFixed(2) : 'N/A'}</div>
+                                    <div>Mileage: ${listing.mileageNumeric ? formatMileage(listing.mileageNumeric) : 'Unknown'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderFilterSummary(listings) {
+            const summaryElement = document.getElementById('filter-summary');
+            if (!listings) {
+                summaryElement.textContent = 'No listings available to summarize.';
+                return;
+            }
+
+            const total = listings.length;
+            const model = state.filters.model === 'all' ? 'all models' : `model ${state.filters.model}`;
+            const mileageMap = {
+                all: 'any mileage',
+                low: 'under 50,000 km',
+                mid: 'between 50,000 km and 100,000 km',
+                high: 'over 100,000 km',
+                unknown: 'with unknown mileage'
+            };
+            const priceRange = state.filters.price;
+            const priceText = typeof priceRange.min === 'number' && typeof priceRange.max === 'number'
+                ? `${formatCurrency(priceRange.min)} to ${formatCurrency(priceRange.max)}`
+                : 'all price points';
+
+            summaryElement.textContent = `Showing ${total} Tesla listings across ${model} priced ${priceText} with ${mileageMap[state.filters.mileage]}.`;
+        }
+
+        function updateCharts(listings) {
+            if (!Array.isArray(listings) || !listings.length) {
+                if (charts.price) {
+                    charts.price.destroy();
+                    charts.price = null;
+                }
+                if (charts.model) {
+                    charts.model.destroy();
+                    charts.model = null;
+                }
+                document.getElementById('price-chart-empty').classList.remove('hidden');
+                document.getElementById('model-chart-empty').classList.remove('hidden');
+                document.getElementById('price-chart-summary').textContent = 'No data available';
+                document.getElementById('model-chart-summary').textContent = 'No data available';
+                return;
+            }
+
+            const priceDistribution = getPriceDistribution(listings);
+            const modelDistribution = getModelDistribution(listings);
+
+            document.getElementById('price-chart-summary').textContent = priceDistribution.summary;
+            document.getElementById('model-chart-summary').textContent = modelDistribution.summary;
+
+            document.getElementById('price-chart-empty').classList.toggle('hidden', priceDistribution.data.length > 1);
+            document.getElementById('model-chart-empty').classList.toggle('hidden', modelDistribution.data.length > 1);
+
+            renderChart('price-distribution-chart', 'bar', priceDistribution, 'Price (AED)');
+            renderChart('model-distribution-chart', 'doughnut', modelDistribution, 'Listings');
+        }
+
+        function renderChart(canvasId, type, dataset, label) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) {
+                return;
+            }
+
+            if (charts[canvasId]) {
+                charts[canvasId].destroy();
+            }
+
+            charts[canvasId] = new Chart(ctx, {
+                type,
+                data: {
+                    labels: dataset.labels,
+                    datasets: [{
+                        label,
+                        data: dataset.data,
+                        backgroundColor: palette,
+                        borderColor: palette.map(color => color.replace('1f2937', '111827')),
+                        borderWidth: 1,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: type !== 'bar',
+                            labels: {
+                                color: '#e2e8f0'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label(context) {
+                                    if (label.includes('Price')) {
+                                        return `${context.label}: ${formatCurrency(context.raw)}`;
+                                    }
+                                    return `${context.label}: ${context.raw}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: type === 'bar' ? {
+                        x: {
+                            ticks: { color: '#cbd5f5' },
+                            grid: { color: 'rgba(148, 163, 184, 0.15)' }
+                        },
+                        y: {
+                            ticks: { color: '#cbd5f5' },
+                            grid: { color: 'rgba(148, 163, 184, 0.15)' }
+                        }
+                    } : {}
+                }
+            });
+        }
+
+        function getPriceDistribution(listings) {
+            const buckets = new Map();
+            listings.forEach(listing => {
+                if (typeof listing.priceNumeric !== 'number' || Number.isNaN(listing.priceNumeric)) {
+                    return;
+                }
+                const bucket = Math.floor(listing.priceNumeric / 50000) * 50000;
+                const label = `${formatCurrency(bucket)} – ${formatCurrency(bucket + 49999)}`;
+                buckets.set(label, (buckets.get(label) || 0) + 1);
+            });
+
+            const labels = Array.from(buckets.keys());
+            const data = Array.from(buckets.values());
+            const summary = labels.length
+                ? `${labels.length} price bands represented`
+                : 'No price data available';
+            return { labels, data, summary };
+        }
+
+        function getModelDistribution(listings) {
+            const counts = new Map();
+            listings.forEach(listing => {
+                const key = listing.modelLabel || 'Other';
+                counts.set(key, (counts.get(key) || 0) + 1);
+            });
+            const labels = Array.from(counts.keys());
+            const data = Array.from(counts.values());
+            const summary = labels.length
+                ? `${labels.length} models represented`
+                : 'No model data available';
+            return { labels, data, summary };
+        }
+
+        function getPriceRange(listings) {
+            const values = listings
+                .map(listing => listing.priceNumeric)
+                .filter(value => typeof value === 'number' && value > 0);
+            if (!values.length) {
+                return 'N/A';
+            }
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            if (min === max) {
+                return formatCurrency(min);
+            }
+            return `${formatCurrency(min)} – ${formatCurrency(max)}`;
+        }
+
+        function formatCurrency(value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return 'N/A';
+            }
+            return `AED ${Math.round(value).toLocaleString('en-US')}`;
+        }
+
+        function formatPriceBand(min, max) {
+            if (typeof min !== 'number' && typeof max !== 'number') {
+                return 'N/A';
+            }
+            if (typeof min !== 'number') {
+                return formatCurrency(max);
+            }
+            if (typeof max !== 'number') {
+                return formatCurrency(min);
+            }
+            if (min === max) {
+                return formatCurrency(min);
+            }
+            return `${formatCurrency(min)} – ${formatCurrency(max)}`;
+        }
+
+        function formatMileage(value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return 'N/A';
+            }
+            return `${Math.round(value).toLocaleString('en-US')} km`;
+        }
+
+        function getBalanceScoreBadge(score, rating) {
+            if (typeof score !== 'number' || !rating) {
+                return '<span class="text-xs text-slate-400">No score available</span>';
+            }
+
+            let badgeClass = '';
+            let icon = '';
+            let label = rating;
+
+            if (score <= 0.75) {
+                badgeClass = 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/40';
+                icon = '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                label = rating || 'Sweet Spot';
+            } else if (score <= 1.5) {
+                badgeClass = 'bg-sky-500/10 text-sky-300 border border-sky-500/40';
+                icon = '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                label = rating || 'Balanced';
+            } else {
+                badgeClass = 'bg-rose-500/10 text-rose-300 border border-rose-500/40';
+                icon = '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                label = rating || 'Outlier';
+            }
+
+            return `
+                <div class="inline-flex items-center px-3 py-1 ${badgeClass} rounded-full text-sm font-medium">
+                    ${icon}
+                    ${label} <span class="ml-1 text-xs opacity-75">(Score: ${score.toFixed(2)})</span>
+                </div>
+            `;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTeslaData();
+        });
+
+        document.addEventListener('click', event => {
+            const link = event.target.closest('a[target="_blank"]');
+            if (!link) {
+                return;
+            }
+            const originalHTML = link.innerHTML;
+            link.innerHTML = '<svg class="animate-spin w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>Loading...';
+            setTimeout(() => {
+                link.innerHTML = originalHTML;
+            }, 2000);
+        });
+
+        console.log('🚗 Tesla Finder AE HTML Template Loaded Successfully');
+
+    </script>
+    {% endraw %}
+</body>
+</html>

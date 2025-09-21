@@ -28,8 +28,6 @@ urls = [
     "https://www.autotraders.ae/used-cars/tesla/?st=&city=&condition=&car_make=76&car_model=&ctrim_id=&ex_color_id=&specs_id=&code=&year_min=2021&year_max=&price_min=&price_max=100000",
     "https://www.rmamotors.com/used-cars/?manufacturer%5B0%5D=Tesla&registrationYear%5Bto%5D=2025&registrationYear%5Bfrom%5D=2021&nfcSearchVersion=1.0.0",
     "https://uae.yallamotor.com/used-cars/mk_tesla/pr_less_100000/yr_2021_later",
-    "https://www.tesla.com/en_AE/inventory/used/m3?arrangeby=plh&zip=&range=0",
-    "https://www.tesla.com/en_AE/inventory/used/my?arrangeby=plh&zip=&range=0",
 ]
 
 

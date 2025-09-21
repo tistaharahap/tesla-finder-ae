@@ -211,25 +211,42 @@ def calculate_z_scores_and_composite_score(listings: List[TeslaListing]) -> List
     mileage_mean = statistics.mean(mileages) if len(mileages) >= 2 else 0
     mileage_stdev = statistics.stdev(mileages) if len(mileages) >= 2 else 1
 
+    # Identify "ideal" values based on preferred ordering (low mileage/price, high year)
+    price_min = min(prices) if prices else None
+    year_max = max(years) if years else None
+    mileage_min = min(mileages) if mileages else None
+
+    def compute_z(value: float, mean: float, stdev: float) -> float:
+        if stdev <= 0:
+            return 0.0
+        return (value - mean) / stdev
+
+    ideal_price_z = compute_z(price_min, price_mean, price_stdev) if price_min is not None else 0.0
+    ideal_year_z = compute_z(year_max, year_mean, year_stdev) if year_max is not None else 0.0
+    ideal_mileage_z = compute_z(mileage_min, mileage_mean, mileage_stdev) if mileage_min is not None else 0.0
+
     # Calculate Z-scores for each listing
     for listing in listings:
-        # Price Z-score
+        # Price Z-score (re-centered around ideal low price)
         price = parse_price_to_numeric(listing.price)
         if price > 0 and price_stdev > 0:
-            listing.price_z_score = (price - price_mean) / price_stdev
+            raw_price_z = (price - price_mean) / price_stdev
+            listing.price_z_score = raw_price_z - ideal_price_z
         else:
             listing.price_z_score = 0.0
 
-        # Year Z-score
+        # Year Z-score (re-centered around ideal high year)
         if listing.year and listing.year > 2000 and year_stdev > 0:
-            listing.year_z_score = (listing.year - year_mean) / year_stdev
+            raw_year_z = (listing.year - year_mean) / year_stdev
+            listing.year_z_score = raw_year_z - ideal_year_z
         else:
             listing.year_z_score = 0.0
 
-        # Mileage Z-score
+        # Mileage Z-score (re-centered around ideal low mileage)
         mileage = parse_mileage_to_numeric(listing.mileage or "")
         if mileage < 999999 and mileage_stdev > 0:
-            listing.mileage_z_score = (mileage - mileage_mean) / mileage_stdev
+            raw_mileage_z = (mileage - mileage_mean) / mileage_stdev
+            listing.mileage_z_score = raw_mileage_z - ideal_mileage_z
         else:
             listing.mileage_z_score = 0.0
 
@@ -242,14 +259,12 @@ def calculate_z_scores_and_composite_score(listings: List[TeslaListing]) -> List
         )
 
         # Generate human-readable balance rating
-        if listing.composite_score <= 0.5:
-            listing.balance_rating = "Excellent Balance"
-        elif listing.composite_score <= 1.0:
-            listing.balance_rating = "Good Balance"
+        if listing.composite_score <= 0.75:
+            listing.balance_rating = "Sweet Spot"
         elif listing.composite_score <= 1.5:
-            listing.balance_rating = "Moderate Balance"
+            listing.balance_rating = "Balanced"
         else:
-            listing.balance_rating = "Poor Balance"
+            listing.balance_rating = "Outlier"
 
     return listings
 
@@ -602,12 +617,31 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
             # Calculate Z-scores and composite scores for all listings
             scored_listings = calculate_z_scores_and_composite_score(all_listings)
 
-            # Sort by composite score (ascending) - lower scores mean better balance
-            # Secondary sort by price for ties
-            scored_listings.sort(key=lambda listing: (
-                listing.composite_score if listing.composite_score is not None else 999,
-                parse_price_to_numeric(listing.price)
-            ))
+            def preferred_sort_key(listing: TeslaListing):
+                mileage_value = parse_mileage_to_numeric(listing.mileage or "")
+                if mileage_value >= 999_999:
+                    mileage_value = float('inf')
+
+                price_value = parse_price_to_numeric(listing.price)
+                if price_value <= 0:
+                    price_value = float('inf')
+
+                year_value = listing.year if listing.year else 0
+
+                composite_value = (
+                    listing.composite_score
+                    if listing.composite_score is not None else float('inf')
+                )
+
+                return (
+                    mileage_value,
+                    price_value,
+                    -year_value,
+                    composite_value,
+                )
+
+            # Preferred ordering: lowest mileage, then lowest price, then newest year
+            scored_listings.sort(key=preferred_sort_key)
 
             # Take top 20 cars with best balance scores
             top_20_sorted = scored_listings[:20]
@@ -618,7 +652,7 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
             sort_span.set_attributes({
                 "total_listings_processed": len(scored_listings),
                 "top_20_selected": len(top_20_sorted),
-                "sorting_criteria": "composite_balance_score_asc (Z-score based)",
+                "sorting_criteria": "mileage asc, price asc, year desc (with balance score tie-breaker)",
                 "best_balance_score": top_20_sorted[0].composite_score if top_20_sorted else None,
                 "worst_balance_score": scored_listings[-1].composite_score if scored_listings else None,
                 "scoring_method": "euclidean_distance_from_statistical_center"
@@ -667,14 +701,14 @@ async def consolidate_tesla_summaries(summaries: List[TeslaListingSummary]) -> T
 Found {total_listings_found} Tesla listings across {len(source_urls)} sources.
 Price range: {global_price_range}
 
-Top 20 "Sweet Spot" Tesla Models (sorted by balance score - closest to statistical center):
+Top 20 "Sweet Spot" Tesla Models (sorted by mileage ↑, price ↑, year ↓ with balance score tie-breaker):
 {chr(10).join([f"  {i+1}. {listing.title} - {listing.price} ({listing.year or 'Unknown year'}) | {listing.mileage or 'Mileage unknown'} | Balance: {listing.balance_rating} (Score: {listing.composite_score:.2f}){f' - {listing.url}' if listing.url else ''}" for i, listing in enumerate(top_20_sorted)])}
 
 Available Models: {', '.join(all_models)}
 Available Locations: {', '.join(all_locations)}
 
 Analysis completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Note: Cars are sorted using Z-score analysis to find the optimal balance between price, year, and mileage. Lower balance scores indicate better overall value positioning."""
+Note: Cars are ordered by preferred mileage/price/year sorting. Lower balance scores indicate listings closest to the re-centered statistical sweet spot."""
 
             summary_span.set_attribute("summary_length", len(summary_text))
 
