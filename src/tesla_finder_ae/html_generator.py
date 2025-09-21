@@ -3,21 +3,21 @@ HTML Report Generator for Tesla Finder AE
 
 Generates beautiful HTML reports from Tesla consolidated summaries using Tailwind CSS.
 """
+
 import json
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean, median
-from typing import Optional
 from urllib.parse import urlparse
 
 import logfire
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 from tesla_finder_ae.nodes import (
     TeslaConsolidatedSummary,
     parse_mileage_to_numeric,
     parse_price_to_numeric,
 )
-
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -28,29 +28,27 @@ _JINJA_ENV = Environment(
 
 
 def generate_tesla_listings_json(
-    consolidated_summary: TeslaConsolidatedSummary,
-    output_path: Optional[Path] = None
+    consolidated_summary: TeslaConsolidatedSummary, output_path: Path | None = None
 ) -> str:
     """
     Generate JSON data file for Tesla listings
-    
+
     Args:
         consolidated_summary: Tesla market analysis results
         output_path: Optional path to save JSON file (defaults to public/listings.json)
-    
+
     Returns:
         Path to the generated JSON file as string
     """
     with logfire.span(
         "Tesla JSON Data Generation",
         total_listings=len(consolidated_summary.all_sorted_listings),
-        sources_count=len(consolidated_summary.source_urls)
+        sources_count=len(consolidated_summary.source_urls),
     ) as json_span:
-        
         # Set default output path
         if output_path is None:
             output_path = Path("public/listings.json")
-        
+
         # Generate JSON structure optimized for frontend consumption
         json_data = {
             "metadata": {
@@ -61,14 +59,14 @@ def generate_tesla_listings_json(
                 "availableModels": consolidated_summary.all_models,
                 "availableLocations": consolidated_summary.all_locations,
                 "sourceUrls": consolidated_summary.source_urls,
-                "sortingCriteria": "Mileage ↑, Price ↑, Year ↓ (balance score tie-breaker)"
+                "sortingCriteria": "Mileage ↑, Price ↑, Year ↓ (balance score tie-breaker)",
             },
-            "listings": []
+            "listings": [],
         }
 
         # Aggregate helpers for enhanced reporting
         source_stats = defaultdict(lambda: {"count": 0, "prices": [], "mileages": []})
-        model_counts = {model: 0 for model in consolidated_summary.all_models}
+        model_counts = dict.fromkeys(consolidated_summary.all_models, 0)
         model_counts["Other"] = 0
         valid_prices_for_range = []
         valid_mileages_for_range = []
@@ -79,11 +77,7 @@ def generate_tesla_listings_json(
             numeric_price = parse_price_to_numeric(listing.price)
             price_numeric = numeric_price if numeric_price > 0 else None
 
-            mileage_numeric = (
-                parse_mileage_to_numeric(listing.mileage)
-                if listing.mileage is not None
-                else None
-            )
+            mileage_numeric = parse_mileage_to_numeric(listing.mileage) if listing.mileage is not None else None
             if mileage_numeric is not None and mileage_numeric >= 999_999:
                 mileage_numeric = None
 
@@ -152,9 +146,7 @@ def generate_tesla_listings_json(
         }
 
         model_distribution = [
-            {"model": model, "count": count}
-            for model, count in model_counts.items()
-            if count > 0 or model == "Other"
+            {"model": model, "count": count} for model, count in model_counts.items() if count > 0 or model == "Other"
         ]
 
         source_breakdown = []
@@ -186,38 +178,36 @@ def generate_tesla_listings_json(
 
         # Convert to JSON string
         json_content = json.dumps(json_data, indent=2, ensure_ascii=False)
-        
+
         # Save JSON file
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with output_path.open("w", encoding="utf-8") as f:
             f.write(json_content)
-        
-        json_span.set_attributes({
-            "json_generated": True,
-            "output_path": str(output_path),
-            "file_size_bytes": len(json_content),
-            "listings_count": len(consolidated_summary.all_sorted_listings),
-            "metadata_included": True
-        })
-        
+
+        json_span.set_attributes(
+            {
+                "json_generated": True,
+                "output_path": str(output_path),
+                "file_size_bytes": len(json_content),
+                "listings_count": len(consolidated_summary.all_sorted_listings),
+                "metadata_included": True,
+            }
+        )
+
         logfire.info(
             "✅ Tesla JSON data generated successfully",
             output_path=str(output_path),
             file_size_bytes=len(json_content),
-            listings_count=len(consolidated_summary.all_sorted_listings)
+            listings_count=len(consolidated_summary.all_sorted_listings),
         )
-        
+
         return str(output_path)
 
 
-def generate_tesla_html_report(
-    consolidated_summary: TeslaConsolidatedSummary,
-    output_path: Optional[Path] = None
-) -> str:
+def generate_tesla_html_report(consolidated_summary: TeslaConsolidatedSummary, output_path: Path | None = None) -> str:
     """Generate the HTML report using the Jinja2 template engine."""
     with logfire.span(
-        "Tesla HTML Template Generation",
-        sources_count=len(consolidated_summary.source_urls)
+        "Tesla HTML Template Generation", sources_count=len(consolidated_summary.source_urls)
     ) as html_span:
         if output_path is None:
             output_path = Path("public/index.html")
